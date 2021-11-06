@@ -1,0 +1,65 @@
+name: "Matrix Continuous Integration Workflow"
+on:
+  # Trigger analysis when pushing to a branch, creating a PR, or commits to a
+  # PR for source code files (**/src/**).
+  push:
+    paths:
+    - '**/src/**'
+  pull_request:
+      types: [opened, synchronize]
+  # Enables manual trigger through Github UI
+  workflow_dispatch:
+
+jobs:
+  changes:
+    name: Detect Source Changes
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.filter.outputs.changes }}
+    steps:
+    - uses: actions/checkout@v2
+    - uses: dorny/paths-filter@v2
+      id: filter
+      with:
+        # 
+        filters: |
+          service1:
+            - 'service1/src/**'
+          service2:
+            - 'service2/src/**'
+  ci_workflow:
+    runs-on: ubuntu-latest
+    needs: changes
+    strategy:
+      fail-fast: false # allows all matrix jobs to run, else the entire workflow is terminated if any of the matrix jobs fails.
+      matrix:
+        name: ${{ fromJSON(needs.changes.outputs.services) }}
+    name: Continuous Integration Workflow - ${{ matrix.service }}
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+    - uses: actions/setup-python@v2
+      with:
+        python-version: '3.8'
+        architecture: 'x64'
+    - name: code analysis
+      uses: sonarsource/sonarqube-scan-action@master
+      with:
+        projectBaseDir: '${{ matrix.service }}/'
+        args: >
+          -Dsonar.projectName=${{ matrix.service }}
+          -Dsonar.projectKey=${{ matrix.service }}
+          -Dsonar.sources=src/
+          -Dsonar.tests=../tests/
+          -Dsonar.verbose=false
+      env:
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+    - name: unit tests
+      working-directory: ${{ matrix.service }}
+      run: |
+        echo "UNIT TESTS GO HERE"
+      env:
+        ENV_VAR: "DUMMY ENV VAR - REPLACE WITH SOMETHING USEFUL"
+    - uses: AutoModality/action-clean@v1 # cleans up the root-owned files output by sonarqube scanner
